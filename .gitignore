@@ -1,0 +1,13 @@
+# downloaded videos/audio
+downloads/
+*.part
+*.ytdl
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# secrets (e.g. YouTube cookies if you ever add them)
+cookies*.txt
+.env
