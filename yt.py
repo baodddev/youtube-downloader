@@ -13,6 +13,8 @@ BASE = {
     # YouTube needs a JS runtime to solve its player challenges; Node is already installed
     "js_runtimes": {"node": {}},
     "windowsfilenames": True,
+    # watch?v=X&list=RD... (Mix) -> only video X; a pure playlist?list= link is still a playlist
+    "noplaylist": True,
 }
 # shortcut: playlists are listed flat (fast), so they get this fixed menu instead of real per-video resolutions
 PLAYLIST_HEIGHTS = [2160, 1440, 1080, 720, 480, 360]
@@ -85,23 +87,64 @@ def handle(url):
         if pick.isdigit() and 1 <= int(pick) <= len(choices):
             break
         print("Số không hợp lệ.")
-    with yt_dlp.YoutubeDL(opts_for(choices[int(pick) - 1][1])) as ydl:
-        ydl.download([url])
-    print("Xong!")
+    height = choices[int(pick) - 1][1]
+    entries = list(info.get("entries") or []) if not info.get("formats") else [info]
+    items = [(e.get("title") or e["url"], e.get("webpage_url") or e["url"], height) for e in entries]
+    print(f"Đã thêm {len(items)} mục vào hàng chờ.")
+    return items
+
+
+def show_queue(queue):
+    if not queue:
+        print("Hàng chờ trống.")
+    for i, (title, _, height) in enumerate(queue, 1):
+        print(f"  {i}. [{f'{height}p' if height else 'MP3'}] {title}")
+
+
+def download_queue(queue):
+    """Download and pop items one by one; Ctrl+C stops and keeps the rest queued."""
+    try:
+        while queue:
+            title, url, height = queue[0]
+            print(f"\n=== Đang tải ({len(queue)} còn lại): {title}")
+            try:
+                with yt_dlp.YoutubeDL(opts_for(height)) as ydl:
+                    ydl.download([url])
+            except yt_dlp.utils.DownloadError as e:
+                print(f"Lỗi, bỏ qua: {e}")
+            queue.pop(0)
+        print("\nXong hết!")
+    except KeyboardInterrupt:
+        print(f"\nĐã dừng. Còn {len(queue)} mục trong hàng chờ (q: xem, c: xóa, Enter: tải tiếp).")
+
+
+HELP = "\nDán URL để thêm vào hàng chờ | q: xem hàng chờ | c: xóa hàng chờ | Enter: tải (hàng chờ trống thì thoát)"
 
 
 def main():
     print(f"Video sẽ lưu vào: {OUT}")
+    queue = []
     urls = sys.argv[1:]
     while True:
-        url = urls.pop(0) if urls else input("\nDán URL (Enter trống để thoát): ").strip()
-        if not url:
+        cmd = urls.pop(0) if urls else input(f"{HELP}\n[{len(queue)} mục] > ").strip()
+        if cmd.lower() == "q":
+            show_queue(queue)
+        elif cmd.lower() == "c":
+            queue.clear()
+            print("Đã xóa hàng chờ.")
+        elif cmd:
+            try:
+                queue += handle(cmd)
+            except yt_dlp.utils.DownloadError as e:
+                print(f"Lỗi: {e}")
+        elif queue:
+            download_queue(queue)
+        else:
             break
-        try:
-            handle(url)
-        except yt_dlp.utils.DownloadError as e:
-            print(f"Lỗi: {e}")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (KeyboardInterrupt, EOFError):  # Ctrl+C / closed input at the prompt
+        pass
