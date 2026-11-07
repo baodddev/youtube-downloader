@@ -1,5 +1,7 @@
 """Dán URL YouTube (video dài, Shorts, playlist) -> chọn độ phân giải / chỉ audio -> tải về downloads/."""
+import shutil
 import sys
+import zipfile
 from pathlib import Path
 
 import imageio_ffmpeg
@@ -60,15 +62,16 @@ def get_choices(info):
     return choices
 
 
-def opts_for(height):
+def opts_for(height, outtmpl):
+    base = {**BASE, "outtmpl": outtmpl}
     if height is None:
         return {
-            **BASE,
+            **base,
             "format": "ba/b",
             "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
         }
     return {
-        **BASE,
+        **base,
         "format": "bv*+ba/b",
         # best resolution <= height, preferring mp4/m4a so the merged mp4 plays everywhere
         "format_sort": [f"res:{height}", "ext:mp4:m4a"],
@@ -88,31 +91,65 @@ def handle(url):
             break
         print("Số không hợp lệ.")
     height = choices[int(pick) - 1][1]
-    entries = list(info.get("entries") or []) if not info.get("formats") else [info]
-    items = [(e.get("title") or e["url"], e.get("webpage_url") or e["url"], height) for e in entries]
-    print(f"Đã thêm {len(items)} mục vào hàng chờ.")
+    if info.get("formats"):  # single video
+        print("Đã thêm 1 mục vào hàng chờ.")
+        return [(info["title"], info["webpage_url"], height, BASE["outtmpl"])]
+    # playlist -> downloads/<playlist title>/001 - <video title> [id].ext, numbered in playlist order
+    folder = yt_dlp.utils.sanitize_filename(info.get("title") or info["id"]).replace("%", "%%")
+    items = [
+        (e.get("title") or e["url"], e["url"], height, str(OUT / folder / f"{i:03d} - %(title)s [%(id)s].%(ext)s"))
+        for i, e in enumerate(info.get("entries") or [], 1)
+    ]
+    print(f"Đã thêm {len(items)} mục vào hàng chờ, sẽ lưu vào thư mục: {OUT / folder}")
     return items
 
 
 def show_queue(queue):
     if not queue:
         print("Hàng chờ trống.")
-    for i, (title, _, height) in enumerate(queue, 1):
-        print(f"  {i}. [{f'{height}p' if height else 'MP3'}] {title}")
+    for i, (title, _, height, outtmpl) in enumerate(queue, 1):
+        folder = Path(outtmpl).parent
+        where = f"{folder.name}/" if folder != OUT else ""
+        print(f"  {i}. [{f'{height}p' if height else 'MP3'}] {where}{title}")
+
+
+def zip_folder(folder):
+    """downloads/<playlist>/ -> downloads/<playlist>.zip (unzips back to the folder), then delete the folder."""
+    files = sorted(p for p in folder.iterdir() if p.is_file())
+    if not files:
+        return
+    zip_path = folder.parent / f"{folder.name}.zip"  # not with_suffix: "Top 10.5" would become "Top 10.zip"
+    tmp = folder.parent / f"{folder.name}.zip.tmp"
+    # ZIP_STORED: mp4/mp3 are already compressed, deflating them only wastes time
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
+        for p in files:
+            z.write(p, f"{folder.name}/{p.name}")
+    with zipfile.ZipFile(tmp) as z:
+        if z.testzip() is not None or len(z.namelist()) != len(files):
+            print(f"Zip lỗi, giữ nguyên thư mục: {folder}")
+            tmp.unlink()
+            return
+    tmp.replace(zip_path)
+    shutil.rmtree(folder)
+    print(f"Đã nén playlist thành: {zip_path}")
 
 
 def download_queue(queue):
     """Download and pop items one by one; Ctrl+C stops and keeps the rest queued."""
     try:
         while queue:
-            title, url, height = queue[0]
+            title, url, height, outtmpl = queue[0]
             print(f"\n=== Đang tải ({len(queue)} còn lại): {title}")
             try:
-                with yt_dlp.YoutubeDL(opts_for(height)) as ydl:
+                with yt_dlp.YoutubeDL(opts_for(height, outtmpl)) as ydl:
                     ydl.download([url])
             except yt_dlp.utils.DownloadError as e:
                 print(f"Lỗi, bỏ qua: {e}")
             queue.pop(0)
+            folder = Path(outtmpl).parent
+            # last queued video of this playlist done -> zip it
+            if folder != OUT and folder.is_dir() and all(Path(o).parent != folder for *_, o in queue):
+                zip_folder(folder)
         print("\nXong hết!")
     except KeyboardInterrupt:
         print(f"\nĐã dừng. Còn {len(queue)} mục trong hàng chờ (q: xem, c: xóa, Enter: tải tiếp).")

@@ -35,7 +35,15 @@ Chọn (1-9, Enter = 1): 3
 - Video được lưu vào thư mục `downloads/` dạng MP4 (hình + tiếng đã ghép).
 - Chọn "Chỉ audio" để lưu MP3 192kbps.
 - Link video đang nằm trong Mix/playlist (`watch?v=...&list=...`) chỉ tải đúng video đó. Muốn tải cả playlist thì dùng link `playlist?list=...`.
-- Playlist: chọn độ phân giải tối đa, video nào không có mức đó sẽ lấy mức thấp hơn gần nhất. Mọi video trong playlist được thêm vào hàng chờ, xem bằng `q`.
+- Playlist (link `playlist?list=...`): chọn độ phân giải tối đa, video nào không có mức đó sẽ lấy mức thấp hơn gần nhất. Mọi video trong playlist được thêm vào hàng chờ (xem bằng `q`). Tải xong video cuối cùng của playlist, tool tự nén thành **một file zip**, giải nén ra sẽ được thư mục đánh số theo thứ tự trong playlist:
+  ```
+  downloads/
+    Tên playlist.zip
+      └─ Tên playlist/
+           001 - Video đầu tiên [id].mp4
+           002 - Video thứ hai [id].mp4
+  ```
+  Đang tải dở (Ctrl+C) thì các video nằm tạm trong thư mục `downloads/Tên playlist/`, tải tiếp xong mới nén. Nếu xóa hàng chờ (`c`) giữa chừng thì thư mục tạm được giữ nguyên, không nén.
 - Có thể truyền URL qua dòng lệnh: `run.bat <url1> <url2>` (sẽ hỏi độ phân giải rồi thêm vào hàng chờ).
 
 ## Lỗi thường gặp
