@@ -3,6 +3,9 @@ downloads/
 *.part
 *.ytdl
 
+# local settings (your chosen download folder)
+settings.json
+
 # Python
 .venv/
 __pycache__/

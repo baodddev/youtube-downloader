@@ -1,4 +1,5 @@
-"""Dán URL YouTube (video dài, Shorts, playlist) -> chọn độ phân giải / chỉ audio -> tải về downloads/."""
+"""Dán URL YouTube (video dài, Shorts, playlist) -> chọn độ phân giải / chỉ audio -> tải về thư mục đã chọn."""
+import json
 import shutil
 import sys
 import zipfile
@@ -7,10 +8,21 @@ from pathlib import Path
 import imageio_ffmpeg
 import yt_dlp
 
-OUT = Path(__file__).parent / "downloads"
+HERE = Path(__file__).parent
+SETTINGS = HERE / "settings.json"
+NAME = "%(title)s [%(id)s].%(ext)s"
+
+
+def load_out():
+    try:
+        return Path(json.loads(SETTINGS.read_text("utf-8"))["out"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return HERE / "downloads"
+
+
+OUT = load_out()
 
 BASE = {
-    "outtmpl": str(OUT / "%(title)s [%(id)s].%(ext)s"),
     "ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe(),
     # YouTube needs a JS runtime to solve its player challenges; Node is already installed
     "js_runtimes": {"node": {}},
@@ -91,25 +103,27 @@ def handle(url):
             break
         print("Số không hợp lệ.")
     height = choices[int(pick) - 1][1]
+    # item = (title, url, height, outtmpl, playlist_dir); playlist_dir is None for a single video.
+    # The folder is fixed when queued, so changing OUT later never moves (or zips!) already-queued items.
     if info.get("formats"):  # single video
-        print("Đã thêm 1 mục vào hàng chờ.")
-        return [(info["title"], info["webpage_url"], height, BASE["outtmpl"])]
-    # playlist -> downloads/<playlist title>/001 - <video title> [id].ext, numbered in playlist order
-    folder = yt_dlp.utils.sanitize_filename(info.get("title") or info["id"]).replace("%", "%%")
+        print(f"Đã thêm 1 mục vào hàng chờ, sẽ lưu vào: {OUT}")
+        return [(info["title"], info["webpage_url"], height, str(OUT / NAME), None)]
+    # playlist -> <OUT>/<playlist title>/001 - <video title> [id].ext, numbered in playlist order
+    pl_dir = OUT / yt_dlp.utils.sanitize_filename(info.get("title") or info["id"])
+    tmpl_dir = Path(str(pl_dir).replace("%", "%%"))  # a literal % in a path would be read as a template field
     items = [
-        (e.get("title") or e["url"], e["url"], height, str(OUT / folder / f"{i:03d} - %(title)s [%(id)s].%(ext)s"))
+        (e.get("title") or e["url"], e["url"], height, str(tmpl_dir / f"{i:03d} - {NAME}"), pl_dir)
         for i, e in enumerate(info.get("entries") or [], 1)
     ]
-    print(f"Đã thêm {len(items)} mục vào hàng chờ, sẽ lưu vào thư mục: {OUT / folder}")
+    print(f"Đã thêm {len(items)} mục vào hàng chờ, sẽ lưu vào thư mục: {pl_dir}")
     return items
 
 
 def show_queue(queue):
     if not queue:
         print("Hàng chờ trống.")
-    for i, (title, _, height, outtmpl) in enumerate(queue, 1):
-        folder = Path(outtmpl).parent
-        where = f"{folder.name}/" if folder != OUT else ""
+    for i, (title, _, height, _, pl_dir) in enumerate(queue, 1):
+        where = f"{pl_dir.name}/" if pl_dir else ""
         print(f"  {i}. [{f'{height}p' if height else 'MP3'}] {where}{title}")
 
 
@@ -138,7 +152,7 @@ def download_queue(queue):
     """Download and pop items one by one; Ctrl+C stops and keeps the rest queued."""
     try:
         while queue:
-            title, url, height, outtmpl = queue[0]
+            title, url, height, outtmpl, pl_dir = queue[0]
             print(f"\n=== Đang tải ({len(queue)} còn lại): {title}")
             try:
                 with yt_dlp.YoutubeDL(opts_for(height, outtmpl)) as ydl:
@@ -146,26 +160,57 @@ def download_queue(queue):
             except yt_dlp.utils.DownloadError as e:
                 print(f"Lỗi, bỏ qua: {e}")
             queue.pop(0)
-            folder = Path(outtmpl).parent
             # last queued video of this playlist done -> zip it
-            if folder != OUT and folder.is_dir() and all(Path(o).parent != folder for *_, o in queue):
-                zip_folder(folder)
+            if pl_dir and pl_dir.is_dir() and all(item[4] != pl_dir for item in queue):
+                zip_folder(pl_dir)
         print("\nXong hết!")
     except KeyboardInterrupt:
         print(f"\nĐã dừng. Còn {len(queue)} mục trong hàng chờ (q: xem, c: xóa, Enter: tải tiếp).")
 
 
-HELP = "\nDán URL để thêm vào hàng chờ | q: xem hàng chờ | c: xóa hàng chờ | Enter: tải (hàng chờ trống thì thoát)"
+def pick_folder():
+    """Folder dialog (typed path if no GUI), remembered in settings.json. Already-queued items keep their folder."""
+    global OUT
+    try:
+        import tkinter
+        from tkinter import filedialog
+
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)  # otherwise the dialog can open behind the console window
+        path = filedialog.askdirectory(initialdir=OUT, title="Chọn thư mục lưu file tải xuống")
+        root.destroy()
+    except Exception:  # no tkinter / no display
+        path = input("Nhập đường dẫn thư mục: ").strip().strip('"')
+    if not path:
+        print(f"Giữ nguyên thư mục: {OUT}")
+        return
+    try:
+        Path(path).mkdir(parents=True, exist_ok=True)
+        SETTINGS.write_text(json.dumps({"out": str(Path(path))}, ensure_ascii=False), "utf-8")
+    except OSError as e:
+        print(f"Không dùng được thư mục này: {e}")
+        return
+    OUT = Path(path)
+    print(f"Từ giờ file sẽ lưu vào: {OUT}")
+
+
+HELP = (
+    "\nDán URL để thêm vào hàng chờ | q: xem hàng chờ | c: xóa hàng chờ | d: đổi thư mục lưu"
+    " | Enter: tải (hàng chờ trống thì thoát)"
+)
 
 
 def main():
-    print(f"Video sẽ lưu vào: {OUT}")
+    print(f"File sẽ lưu vào: {OUT}")
     queue = []
     urls = sys.argv[1:]
     while True:
         cmd = urls.pop(0) if urls else input(f"{HELP}\n[{len(queue)} mục] > ").strip()
         if cmd.lower() == "q":
             show_queue(queue)
+        elif cmd.lower() == "d":
+            pick_folder()
         elif cmd.lower() == "c":
             queue.clear()
             print("Đã xóa hàng chờ.")

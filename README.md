@@ -29,10 +29,11 @@ Chọn (1-9, Enter = 1): 3
 ```
 
 1. Dán URL, chọn độ phân giải → video được thêm vào **hàng chờ** (chưa tải ngay). Dán thêm bao nhiêu link cũng được.
-2. `q` để xem hàng chờ, `c` để xóa hết hàng chờ.
+2. `q` để xem hàng chờ, `c` để xóa hết hàng chờ, `d` để đổi thư mục lưu file (mở hộp thoại chọn thư mục).
 3. Nhấn Enter (để trống) để bắt đầu tải. Đang tải mà muốn dừng thì nhấn **Ctrl+C**: các mục chưa tải vẫn nằm trong hàng chờ, có thể xem/xóa/tải tiếp.
 
-- Video được lưu vào thư mục `downloads/` dạng MP4 (hình + tiếng đã ghép).
+- Video được lưu dạng MP4 (hình + tiếng đã ghép), mặc định vào thư mục `downloads/` cạnh tool.
+- Đổi thư mục lưu bằng lệnh `d`: tool nhớ lựa chọn này (trong file `settings.json`) cho những lần chạy sau. Các mục đã có sẵn trong hàng chờ vẫn lưu vào thư mục cũ, chỉ những link thêm sau mới vào thư mục mới.
 - Chọn "Chỉ audio" để lưu MP3 192kbps.
 - Link video đang nằm trong Mix/playlist (`watch?v=...&list=...`) chỉ tải đúng video đó. Muốn tải cả playlist thì dùng link `playlist?list=...`.
 - Playlist (link `playlist?list=...`): chọn độ phân giải tối đa, video nào không có mức đó sẽ lấy mức thấp hơn gần nhất. Mọi video trong playlist được thêm vào hàng chờ (xem bằng `q`). Tải xong video cuối cùng của playlist, tool tự nén thành **một file zip**, giải nén ra sẽ được thư mục đánh số theo thứ tự trong playlist:
